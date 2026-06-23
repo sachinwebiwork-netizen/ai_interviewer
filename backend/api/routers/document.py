@@ -9,9 +9,9 @@ router = APIRouter(prefix="/document", tags=["Document"])
 async def upload_document(
     resume: UploadFile = File(...),
     jd: UploadFile = File(...),
-    role: str = Form(...),
-    experience: str = Form(...),
-    jd_company: str = Form(...)
+    role: str = Form("Unknown Role"),
+    experience: str = Form("Mid"),
+    jd_company: str = Form("Unknown Company")
 ):
     try:
         resume_bytes = await resume.read()
