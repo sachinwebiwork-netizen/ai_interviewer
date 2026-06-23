@@ -1,22 +1,25 @@
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import Optional
 
-class InterviewStartRequest(BaseModel):
-    num_questions: int = 5
+class StartInterviewRequest(BaseModel):
     session_id: str
+    num_questions: int = 5
+
+class StartInterviewResponse(BaseModel):
+    session_id: str
+    question: str
 
 class AnswerRequest(BaseModel):
     session_id: str
-    q_num: int
-    num_questions: int
-    answer: str
     question: str
-    last_action: str
+    answer: str
 
-class FeedbackResponse(BaseModel):
+class AnswerResponse(BaseModel):
+    session_id: str
+    q_num: int
     feedback: str
     score: int
     action: str
-
-class FinalReportRequest(BaseModel):
-    session_id: str
+    next_question: Optional[str] = None
+    final_report: Optional[str] = None
+    is_complete: bool

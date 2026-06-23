@@ -21,3 +21,13 @@ Thumbs.db
 
 # Lightning
 .lightning/
+
+# Debug / test files
+debug_*.py
+test_*.py
+
+# Zip files
+*.zip
+
+# Dev notebooks
+collab_code.ipynb

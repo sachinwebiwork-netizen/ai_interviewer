@@ -4,9 +4,7 @@ from core.config import settings
 
 class AIInterviewerService:
     def __init__(self):
-        self.trained_model_id = "sachinwebiwork/ai-interviewer-mistral"
-        self.base_model_id = "mistralai/Mistral-7B-Instruct-v0.3"
-        # Initialize client with token
+        self.model_id = "mistralai/Mistral-7B-Instruct-v0.3"
         self.client = InferenceClient(token=settings.HF_TOKEN)
 
     def build_prompt(self, role, experience, jd_company, jd_skills, resume_skills, resume_projects, user_turn):
@@ -66,7 +64,7 @@ Rules:
 Output: Question only.
 """
         prompt = self.build_prompt(role, experience, jd_company, jd_skills, resume_skills, resume_projects, user_turn)
-        return self._call_hf_api(self.trained_model_id, prompt, max_new_tokens=120, temperature=0.8)
+        return self._call_hf_api(self.model_id, prompt, max_new_tokens=120, temperature=0.8)
 
     def get_feedback(self, role, experience, jd_company, jd_skills, resume_skills, resume_projects, question, answer):
         user_turn = f"""
@@ -93,7 +91,7 @@ Score: X/10
 Action: FOLLOW_UP or DEEP_DIVE or NEXT_TOPIC
 """
         prompt = self.build_prompt(role, experience, jd_company, jd_skills, resume_skills, resume_projects, user_turn)
-        fb_text = self._call_hf_api(self.trained_model_id, prompt, max_new_tokens=150, temperature=0.1) # lower temp for feedback
+        fb_text = self._call_hf_api(self.model_id, prompt, max_new_tokens=150, temperature=0.1)
         
         m_score = re.search(r'Score:\s*(\d+)/10', fb_text, re.IGNORECASE)
         score = int(m_score.group(1)) if m_score else 0
@@ -125,6 +123,6 @@ Action: FOLLOW_UP or DEEP_DIVE or NEXT_TOPIC
             f"Hiring Decision: [Hire/Consider/Reject]\\n"
             f"Reason: [2 sentences]\\n[/INST]"
         )
-        return self._call_hf_api(self.base_model_id, prompt, max_new_tokens=350, temperature=0.7)
+        return self._call_hf_api(self.model_id, prompt, max_new_tokens=350, temperature=0.7)
 
 ai_service = AIInterviewerService()

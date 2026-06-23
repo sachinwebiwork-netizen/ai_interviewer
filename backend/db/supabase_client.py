@@ -30,9 +30,15 @@ def init_db():
                 resume_skills JSONB,
                 resume_projects JSONB,
                 history JSONB,
+                num_questions INTEGER DEFAULT 5,
                 created_at TIMESTAMP
             )
         """)
+        # Add num_questions column if it doesn't exist (for existing tables)
+        try:
+            cur.execute("ALTER TABLE sessions ADD COLUMN IF NOT EXISTS num_questions INTEGER DEFAULT 5")
+        except Exception:
+            pass
         conn.commit()
         cur.close()
         conn.close()
@@ -85,3 +91,38 @@ def update_session_history(session_id: str, new_history_entry: dict):
     cur.close()
     conn.close()
     return current_history
+
+def update_session_field(session_id: str, field: str, value):
+    session = get_session(session_id)
+    if not session:
+        raise Exception("Session not found.")
+
+    allowed_fields = ["num_questions"]
+    if field not in allowed_fields:
+        raise Exception(f"Field '{field}' cannot be updated.")
+
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute(f"UPDATE sessions SET {field} = %s WHERE id = %s", (value, session_id))
+    conn.commit()
+    cur.close()
+    conn.close()
+
+def list_sessions():
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+    cur.execute("SELECT id, role, experience, jd_company, created_at, COALESCE(jsonb_array_length(history), 0) as q_count FROM sessions ORDER BY created_at DESC")
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+    return [dict(r) for r in rows]
+
+def delete_session(session_id: str):
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM sessions WHERE id = %s", (session_id,))
+    deleted = cur.rowcount
+    conn.commit()
+    cur.close()
+    conn.close()
+    return deleted > 0
