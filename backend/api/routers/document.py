@@ -28,9 +28,9 @@ def extract_from_jd(text: str):
     if company_match:
         company = company_match.group(1).strip()[:50]
     
-    role_match = re.search(r'(?:Role[:\s]*|Position[:\s]*|Title[:\s]*|Hiring[:\s]*for[:\s]*)\s*(.+?)(?:\n|$)', text[:500])
+    role_match = re.search(r'(?:Role[:\s]*|Position[:\s]*|Job Title[:\s]*|Title[:\s]*|Hiring[:\s]*for[:\s]*)\s*(.+?)(?:\n|$)', text[:500])
     if role_match:
-        role = role_match.group(1).strip()[:50]
+        role = role_match.group(1).strip().strip('*').strip()[:50]
     
     return role, experience, company
 
