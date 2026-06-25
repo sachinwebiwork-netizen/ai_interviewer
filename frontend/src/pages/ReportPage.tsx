@@ -36,7 +36,10 @@ export default function ReportPage() {
     <div className="page">
       <div className="report-header">
         <h1>Interview Report</h1>
-        <button onClick={() => nav("/")} className="link-btn">&larr; Sessions</button>
+        <div style={{ display: "flex", gap: "0.5rem" }}>
+          <button onClick={() => nav(`/interview/${sessionId}?mode=review`)} className="link-btn">View Conversation</button>
+          <button onClick={() => nav("/")} className="link-btn">&larr; Sessions</button>
+        </div>
       </div>
       <p className="subtitle"><code>{data.role || "Untitled"}</code> &middot; {data.company || "—"}</p>
 

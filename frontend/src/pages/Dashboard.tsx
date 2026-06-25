@@ -141,7 +141,12 @@ function renderSection(
               </button>
             )}
             {s.status === "completed" && (
-              <button className="sm secondary" onClick={() => nav(`/interview/${s.id}?num=${Math.max(s.total_questions_asked + 3, 8)}`)}>Review</button>
+              <button
+                className="sm secondary"
+                onClick={() => nav(`/interview/${s.id}?num=${Math.max(s.total_questions_asked + 3, 8)}&mode=review`)}
+              >
+                Review
+              </button>
             )}
             <button className="sm danger" onClick={() => handleDelete(s.id)}>Delete</button>
           </div>
