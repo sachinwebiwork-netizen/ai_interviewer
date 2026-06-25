@@ -54,117 +54,130 @@ def init_db():
     if not settings.DATABASE_URL:
         logger.warning("DATABASE_URL not set. DB integration disabled.")
         return
+
+    lock_key = 8192012345
     try:
-        with get_cursor() as cur:
-            cur.execute("""
-                CREATE TABLE IF NOT EXISTS sessions (
-                    id UUID PRIMARY KEY,
-                    role TEXT,
-                    company TEXT,
-                    experience TEXT,
-                    jd_text TEXT,
-                    jd_skills JSONB DEFAULT '[]',
-                    jd_required_skills JSONB DEFAULT '[]',
-                    jd_preferred_skills JSONB DEFAULT '[]',
-                    jd_responsibilities JSONB DEFAULT '[]',
-                    jd_years_experience TEXT,
-                    resume_text TEXT,
-                    resume_skills JSONB DEFAULT '[]',
-                    resume_projects JSONB DEFAULT '[]',
-                    status TEXT DEFAULT 'created',
-                    num_questions INTEGER DEFAULT 8,
-                    start_time TIMESTAMP,
-                    end_time TIMESTAMP,
-                    duration_seconds INTEGER,
-                    total_questions_asked INTEGER DEFAULT 0,
-                    total_answers_given INTEGER DEFAULT 0,
-                    current_topic TEXT,
-                    tested_skills JSONB DEFAULT '[]',
-                    untested_skills JSONB DEFAULT '[]',
-                    coverage_percentage REAL DEFAULT 0.0,
-                    final_report JSONB,
-                    created_at TIMESTAMP DEFAULT NOW(),
-                    updated_at TIMESTAMP DEFAULT NOW()
-                )
-            """)
+        pool = get_pool()
+        conn = pool.getconn()
+        try:
+            conn.autocommit = False
+            with conn.cursor() as cur:
+                cur.execute("SELECT pg_advisory_lock(%s)", (lock_key,))
+                try:
+                    cur.execute("""
+                        CREATE TABLE IF NOT EXISTS sessions (
+                            id UUID PRIMARY KEY,
+                            role TEXT,
+                            company TEXT,
+                            experience TEXT,
+                            jd_text TEXT,
+                            jd_skills JSONB DEFAULT '[]',
+                            jd_required_skills JSONB DEFAULT '[]',
+                            jd_preferred_skills JSONB DEFAULT '[]',
+                            jd_responsibilities JSONB DEFAULT '[]',
+                            jd_years_experience TEXT,
+                            resume_text TEXT,
+                            resume_skills JSONB DEFAULT '[]',
+                            resume_projects JSONB DEFAULT '[]',
+                            status TEXT DEFAULT 'created',
+                            num_questions INTEGER DEFAULT 8,
+                            start_time TIMESTAMP,
+                            end_time TIMESTAMP,
+                            duration_seconds INTEGER,
+                            total_questions_asked INTEGER DEFAULT 0,
+                            total_answers_given INTEGER DEFAULT 0,
+                            current_topic TEXT,
+                            tested_skills JSONB DEFAULT '[]',
+                            untested_skills JSONB DEFAULT '[]',
+                            coverage_percentage REAL DEFAULT 0.0,
+                            final_report JSONB,
+                            created_at TIMESTAMP DEFAULT NOW(),
+                            updated_at TIMESTAMP DEFAULT NOW()
+                        )
+                    """)
 
-            cur.execute("""
-                SELECT column_name FROM information_schema.columns
-                WHERE table_name = 'sessions' AND column_name IN ('jd_company', 'history')
-            """)
-            old_cols = {row[0] for row in cur.fetchall()}
+                    cur.execute("""
+                        SELECT column_name FROM information_schema.columns
+                        WHERE table_name = 'sessions' AND column_name IN ('jd_company', 'history')
+                    """)
+                    old_cols = {row[0] for row in cur.fetchall()}
 
-            if "jd_company" in old_cols:
-                cur.execute("ALTER TABLE sessions RENAME COLUMN jd_company TO company")
+                    if "jd_company" in old_cols:
+                        cur.execute("ALTER TABLE sessions RENAME COLUMN jd_company TO company")
 
-            needs_add = False
-            for col, col_type in [
-                ("jd_text", "TEXT"),
-                ("jd_required_skills", "JSONB DEFAULT '[]'"),
-                ("jd_preferred_skills", "JSONB DEFAULT '[]'"),
-                ("jd_responsibilities", "JSONB DEFAULT '[]'"),
-                ("jd_years_experience", "TEXT"),
-                ("resume_text", "TEXT"),
-                ("status", "TEXT DEFAULT 'created'"),
-                ("start_time", "TIMESTAMP"),
-                ("end_time", "TIMESTAMP"),
-                ("duration_seconds", "INTEGER"),
-                ("total_questions_asked", "INTEGER DEFAULT 0"),
-                ("total_answers_given", "INTEGER DEFAULT 0"),
-                ("current_topic", "TEXT"),
-                ("tested_skills", "JSONB DEFAULT '[]'"),
-                ("untested_skills", "JSONB DEFAULT '[]'"),
-                ("coverage_percentage", "REAL DEFAULT 0.0"),
-                ("final_report", "JSONB"),
-                ("updated_at", "TIMESTAMP DEFAULT NOW()"),
-            ]:
-                cur.execute(f"""
-                    SELECT column_name FROM information_schema.columns
-                    WHERE table_name = 'sessions' AND column_name = '{col}'
-                """)
-                if not cur.fetchone():
-                    cur.execute(f"ALTER TABLE sessions ADD COLUMN {col} {col_type}")
-                    needs_add = True
+                    needs_add = False
+                    for col, col_type in [
+                        ("jd_text", "TEXT"),
+                        ("jd_required_skills", "JSONB DEFAULT '[]'"),
+                        ("jd_preferred_skills", "JSONB DEFAULT '[]'"),
+                        ("jd_responsibilities", "JSONB DEFAULT '[]'"),
+                        ("jd_years_experience", "TEXT"),
+                        ("resume_text", "TEXT"),
+                        ("status", "TEXT DEFAULT 'created'"),
+                        ("start_time", "TIMESTAMP"),
+                        ("end_time", "TIMESTAMP"),
+                        ("duration_seconds", "INTEGER"),
+                        ("total_questions_asked", "INTEGER DEFAULT 0"),
+                        ("total_answers_given", "INTEGER DEFAULT 0"),
+                        ("current_topic", "TEXT"),
+                        ("tested_skills", "JSONB DEFAULT '[]'"),
+                        ("untested_skills", "JSONB DEFAULT '[]'"),
+                        ("coverage_percentage", "REAL DEFAULT 0.0"),
+                        ("final_report", "JSONB"),
+                        ("updated_at", "TIMESTAMP DEFAULT NOW()"),
+                    ]:
+                        cur.execute(f"""
+                            SELECT column_name FROM information_schema.columns
+                            WHERE table_name = 'sessions' AND column_name = '{col}'
+                        """)
+                        if not cur.fetchone():
+                            cur.execute(f"ALTER TABLE sessions ADD COLUMN {col} {col_type}")
+                            needs_add = True
 
-            if "history" in old_cols:
-                cur.execute("""
-                    UPDATE sessions SET status = 'completed'
-                    WHERE (status IS NULL OR status = 'created')
-                      AND history IS NOT NULL AND history != '[]'::jsonb
-                """)
-            cur.execute("""
-                UPDATE sessions SET status = 'created'
-                WHERE status IS NULL
-            """)
+                    if "history" in old_cols:
+                        cur.execute("""
+                            UPDATE sessions SET status = 'completed'
+                            WHERE (status IS NULL OR status = 'created')
+                              AND history IS NOT NULL AND history != '[]'::jsonb
+                        """)
+                    cur.execute("""
+                        UPDATE sessions SET status = 'created'
+                        WHERE status IS NULL
+                    """)
 
-            if "jd_company" in old_cols or needs_add:
-                logger.info("Migrated sessions table from old schema.")
+                    if "jd_company" in old_cols or needs_add:
+                        logger.info("Migrated sessions table from old schema.")
 
-            cur.execute("""
-                CREATE TABLE IF NOT EXISTS interview_exchanges (
-                    id SERIAL PRIMARY KEY,
-                    session_id UUID REFERENCES sessions(id) ON DELETE CASCADE,
-                    question_number INTEGER,
-                    question TEXT,
-                    answer TEXT,
-                    feedback TEXT,
-                    score INTEGER,
-                    action TEXT,
-                    topic TEXT,
-                    difficulty TEXT,
-                    timestamp TIMESTAMP DEFAULT NOW(),
-                    token_count INTEGER DEFAULT 0,
-                    latency_ms INTEGER DEFAULT 0
-                )
-            """)
-            cur.execute("""
-                CREATE INDEX IF NOT EXISTS idx_exchanges_session_id
-                ON interview_exchanges(session_id)
-            """)
-            cur.execute("""
-                CREATE INDEX IF NOT EXISTS idx_sessions_status
-                ON sessions(status)
-            """)
+                    cur.execute("""
+                        CREATE TABLE IF NOT EXISTS interview_exchanges (
+                            id SERIAL PRIMARY KEY,
+                            session_id UUID REFERENCES sessions(id) ON DELETE CASCADE,
+                            question_number INTEGER,
+                            question TEXT,
+                            answer TEXT,
+                            feedback TEXT,
+                            score INTEGER,
+                            action TEXT,
+                            topic TEXT,
+                            difficulty TEXT,
+                            timestamp TIMESTAMP DEFAULT NOW(),
+                            token_count INTEGER DEFAULT 0,
+                            latency_ms INTEGER DEFAULT 0
+                        )
+                    """)
+                    cur.execute("""
+                        CREATE INDEX IF NOT EXISTS idx_exchanges_session_id
+                        ON interview_exchanges(session_id)
+                    """)
+                    cur.execute("""
+                        CREATE INDEX IF NOT EXISTS idx_sessions_status
+                        ON sessions(status)
+                    """)
+                finally:
+                    cur.execute("SELECT pg_advisory_unlock(%s)", (lock_key,))
+            conn.commit()
+        finally:
+            pool.putconn(conn)
         logger.info("Database initialized successfully.")
     except Exception as e:
         logger.error(f"Failed to initialize database: {e}")

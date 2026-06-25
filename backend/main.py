@@ -28,11 +28,8 @@ app.add_middleware(
 
 @app.on_event("startup")
 async def startup_event():
-    try:
-        init_db()
-        logger.info("Application startup complete. Database is ready.")
-    except Exception as e:
-        logger.error(f"Startup failed: {e}")
+    init_db()
+    logger.info("Application startup complete. Database is ready.")
 
 
 app.include_router(document.router)

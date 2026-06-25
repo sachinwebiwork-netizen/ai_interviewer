@@ -96,7 +96,7 @@ async def start_interview(req: StartInterviewRequest):
             )
         else:
             q_num = 1
-            result = generate_first_question(state=state)
+            result = generate_first_question(state=state, total_q=req.num_questions)
             update_session(
                 req.session_id,
                 status="in_progress",

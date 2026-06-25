@@ -3,6 +3,7 @@ import logging
 import re
 import time
 import random
+from difflib import SequenceMatcher
 from typing import Optional
 
 import requests
@@ -12,6 +13,7 @@ from core.config import settings
 logger = logging.getLogger(__name__)
 
 DIFFICULTY_ORDER = ["easy", "medium", "hard", "system_design"]
+QUESTION_SIMILARITY_THRESHOLD = 0.78
 
 
 def parse_json_output(text: str) -> Optional[dict]:
@@ -298,10 +300,21 @@ class InterviewState:
         avg = sum(evidence["scores"]) / evidence["count"]
         return avg >= min_score
 
-    def get_next_untested_skill(self):
-        for skill in self.untested_skills:
-            return skill
-        return None
+    def get_remaining_budget(self, q_num: int, total_q: int) -> int:
+        return max(total_q - q_num + 1, 0)
+
+    def needs_broad_questions(self, q_num: int, total_q: int) -> bool:
+        remaining_questions = self.get_remaining_budget(q_num, total_q)
+        return len(self.untested_skills) > remaining_questions
+
+    def get_next_untested_skill(self, current_topic: str | None = None, q_num: int = 0, total_q: int = 0):
+        if not self.untested_skills:
+            return None
+        if current_topic:
+            others = [skill for skill in self.untested_skills if skill != current_topic]
+            if others:
+                return min(others, key=lambda s: self.skill_depth_count.get(s, 0))
+        return min(self.untested_skills, key=lambda s: self.skill_depth_count.get(s, 0))
 
     def get_skill_confidence(self, skill: str) -> str | None:
         skill = _normalize_skill(skill)
@@ -318,8 +331,8 @@ class InterviewState:
         else:
             return "low"
 
-    def get_remaining_budget(self, q_num: int, total_q: int) -> int:
-        return total_q - q_num
+    def get_remaining_skills(self) -> list:
+        return list(self.untested_skills)
 
     def get_max_depth_for_budget(self, q_num: int, total_q: int, untested_count: int) -> int:
         remaining = self.get_remaining_budget(q_num, total_q)
@@ -358,6 +371,12 @@ def _normalize_question_text(q: str) -> str:
     return re.sub(r'[^a-z0-9 ]', '', (q or "").lower()).strip()
 
 
+def _similar_text(a: str, b: str) -> bool:
+    if not a or not b:
+        return False
+    return SequenceMatcher(None, a, b).ratio() >= QUESTION_SIMILARITY_THRESHOLD
+
+
 def _is_duplicate_question(question: str, asked_questions: list) -> bool:
     if not question:
         return False
@@ -365,7 +384,10 @@ def _is_duplicate_question(question: str, asked_questions: list) -> bool:
     if not norm:
         return False
     for prev in asked_questions:
-        if _normalize_question_text(prev) == norm:
+        prev_norm = _normalize_question_text(prev)
+        if not prev_norm:
+            continue
+        if prev_norm == norm or _similar_text(norm, prev_norm):
             return True
     return False
 
@@ -374,11 +396,19 @@ def build_system_prompt(state: InterviewState) -> str:
     skills_str = str(state.jd_required_skills)
     preferred_str = str(state.jd_preferred_skills) if state.jd_preferred_skills else "[]"
     exp = state.experience or "Mid"
-    base = f"Role:{state.role},Exp:{exp},Skills:{preferred_str},JD:{skills_str}"
+    base = (
+        f"You are a hiring manager interviewing a candidate for a {state.role} role. "
+        f"Use friendly, conversational language and avoid sounding like a checklist or an AI prompt. "
+        f"Ask questions as a real interviewer would, with varied phrasing such as 'What was your approach...', 'How did you handle...', 'Can you walk me through...', or 'What happened when...'. "
+        f"Do not repeat the same opening phrase for multiple questions. Avoid mechanical patterns like 'Can you tell me', 'Could you explain', or 'Please describe' every time. "
+        f"Keep the tone human and specific to the candidate's background. "
+        f"Role details: experience level={exp}, preferred skills={preferred_str}, required skills={skills_str}."
+    )
     if state.resume_skills:
-        base += f",ResumeSkills:{str(state.resume_skills[:10])}"
+        base += f" Resume skills: {str(state.resume_skills[:10])}."
     if state.resume_projects:
-        base += f",Projects:{str(state.resume_projects[:3])}"
+        base += f" Projects: {str(state.resume_projects[:3])}."
+    base += " Focus on broad coverage of required skills without repeating questions."
     return base
 
 
@@ -391,7 +421,8 @@ def generate_next_question(
     last_feedback: str,
     last_topic: str,
 ) -> dict:
-    untested = state.get_next_untested_skill()
+    untested = state.get_next_untested_skill(last_topic, q_num, total_q)
+    need_broad = state.needs_broad_questions(q_num, total_q)
     next_topic_for_difficulty = untested or last_topic
     difficulty = state.get_difficulty_for_skill(next_topic_for_difficulty, q_num, total_q)
 
@@ -440,19 +471,31 @@ def generate_next_question(
         f"Question #{q_num} of {total_q}.\n"
         f"{action_desc}\n"
         f"Last answer: \"{last_answer}\"\n"
+        f"Use a natural, conversational tone. Avoid repeating the same question style or starting multiple questions with 'Can you tell me...', 'Could you explain...', or 'Please describe...'.\n"
+        f"If you ask a follow-up, make it sound like a natural continuation, not a repeat of the same template.\n"
     )
     if asked_questions:
         # Keep only the most recent N to avoid bloating the prompt, but this is
         # almost always enough since repeats happen on consecutive/near turns.
         recent_asked = asked_questions[-8:]
-        user_content += "\nQuestions already asked in this interview (DO NOT repeat or rephrase ANY of these):\n"
+        user_content += "\nHere are recent questions already asked in this interview:\n"
         for i, q in enumerate(recent_asked, 1):
             user_content += f"{i}. {q}\n"
-        user_content += "Your new question must be worded differently and explore a different angle than all of the above.\n"
+        user_content += (
+            "Please avoid repeating the same question or asking the same thing in a different way. "
+            "If this topic has already been covered, move on to another skill and ask something new.\n"
+        )
     if resume_skill_names:
         user_content += f"Resume: {resume_skill_names}\n"
     if resume_project_desc:
         user_content += f"Projects: {resume_project_desc}\n"
+    if state.untested_skills:
+        user_content += f"Remaining untested skills: {', '.join(state.untested_skills)}\n"
+    if need_broad:
+        user_content += (
+            "There are more remaining required skills than available questions. "
+            "Ask a broader question that touches at least two of the remaining skills while still being specific and conversational.\n"
+        )
     user_content += (
         f"\nOUTPUT FORMAT (JSON only):\n"
         f"{{\n"
@@ -520,6 +563,10 @@ def generate_next_question(
         or question.startswith("Error:")
         or "Unable to generate" in question
         or _is_duplicate_question(question, asked_questions)
+        or question.lower().startswith("can you tell me")
+        or question.lower().startswith("could you explain")
+        or question.lower().startswith("please describe")
+        or question.lower().startswith("tell me about")
     ):
         question = _fallback_question(topic_for_fallback, asked_questions, q_num)
     return {
@@ -687,18 +734,29 @@ def evaluate_answer(
     }
 
 
-def generate_first_question(state: InterviewState) -> dict:
-    untested = state.get_next_untested_skill()
+def generate_first_question(state: InterviewState, total_q: int = 1) -> dict:
+    untested = state.get_next_untested_skill(None, 1, total_q)
     topic = untested or state.jd_skills[0] if state.jd_skills else "general"
+    need_broad = state.needs_broad_questions(1, total_q)
 
     user_content = (
-        f"Start the interview for the {state.role} position.\n"
-        f"Ask exactly ONE question about '{topic}'.\n"
-        f"The candidate has {', '.join(state.resume_skills[:5])} on their resume.\n"
-        f"Reference something from their background to sound natural.\n"
+        f"Begin a conversational interview for the {state.role} role.\n"
+        f"Ask one natural question about '{topic}'.\n"
+        f"The candidate's resume mentions {', '.join(state.resume_skills[:5])}.\n"
+        f"Make the question feel like a normal interviewer asking about experience, not an AI checklist.\n"
+        f"Use a different opening style than common templates like 'Can you tell me about...' and avoid repeating the same structure across questions.\n"
+    )
+    if state.untested_skills:
+        user_content += f"Remaining untested skills: {', '.join(state.untested_skills)}\n"
+    if need_broad:
+        user_content += (
+            "There are more remaining required skills than available questions. "
+            "Ask a broader multi-skill question that connects several of the remaining skills.\n"
+        )
+    user_content += (
         f"OUTPUT FORMAT (JSON only):\n"
         f"{{\n"
-        f'  "question": "Your short conversational question (max 15 words)",\n'
+        f'  "question": "Your question, phrased naturally and conversationally",\n'
         f'  "topic": "{topic}",\n'
         f'  "difficulty": "easy"\n'
         f"}}\n"
@@ -721,7 +779,7 @@ def generate_first_question(state: InterviewState) -> dict:
     question = re.sub(r'^["\']+|["\']+$', '', content)
     question = re.sub(r'^(Question|Q):\s*', '', question, flags=re.IGNORECASE)
     if len(question) > 200 or "Error:" in question or "Unable to generate" in question:
-        question = f"Tell me about your experience with {topic}."
+        question = f"Describe a recent project where you used {topic} and what impact it had."
     return {
         "question": question,
         "topic": topic,
@@ -740,12 +798,12 @@ def _fallback_question(topic: str, asked_questions: list, q_num: int) -> str:
     through several phrasings and skip any that were already asked.
     """
     templates = [
-        f"Can you walk me through your experience with {topic}?",
-        f"Tell me about a project where you used {topic} in depth.",
-        f"What's a challenging problem you solved using {topic}?",
-        f"How would you explain {topic} to a junior developer?",
-        f"What best practices do you follow when working with {topic}?",
-        f"What's something tricky you learned while working with {topic}?",
+        f"Walk me through a time when you used {topic} in a real project.",
+        f"What was the biggest challenge you faced with {topic}, and how did you solve it?",
+        f"How have you used {topic} to make a system more reliable or scalable?",
+        f"What would you consider a good best practice for working with {topic}?",
+        f"If someone on your team asked you to explain {topic}, how would you do it?",
+        f"Describe a situation where {topic} made a real difference in your work.",
     ]
     for t in templates:
         if not _is_duplicate_question(t, asked_questions):

@@ -27,7 +27,8 @@ class InterviewLitAPI(ls.LitAPI):
                 resume_skills=req.get("resume_skills", []),
                 resume_projects=req.get("resume_projects", []),
             )
-            result = generate_first_question(state)
+            total_q = req.get("num_questions") or req.get("total_q") or 1
+            result = generate_first_question(state, total_q=total_q)
             return result
 
         elif action == "question":
