@@ -51,10 +51,18 @@ python server.py
 ```
 
 ## Deploy on Lightning AI
+1. Push this repo to GitHub.
+2. Create a Studio on [Lightning AI](https://lightning.ai) and create a new app.
+3. In Studio, set the required Secrets / Environment Variables:
+	- `DATABASE_URL` — your Supabase/Postgres connection string
+	- `INFERENCE_PROVIDER=local` (if you will serve the model on Lightning)
+	- `LOCAL_INFERENCE_URL` — the internal URL of the model serving endpoint (if applicable)
+	- `LIGHTNING_ACCELERATOR=gpu` (ensure your Lightning plan gives GPU access)
+	- Optionally `HF_TOKEN` if you still want Hugging Face fallback
+4. Use the `backend/litserve_app.py` entrypoint for LitServe-based deployments (this script defaults to `LIGHTNING_ACCELERATOR=gpu`).
+	- Run command in Studio: `python backend/litserve_app.py`
+5. Alternatively, deploy the whole backend as a container (Dockerfile provided) and run model serving separately on Lightning or another GPU host. Point `LOCAL_INFERENCE_URL` to that host.
 
-1. Push this repo to GitHub
-2. Create a Studio on [Lightning AI](https://lightning.ai)
-3. Set `HF_TOKEN` and `DATABASE_URL` in Studio Secrets
-4. Run `python backend/server.py`
-
-Or deploy as a container via AI Hub using the included `Dockerfile`.
+Notes:
+- The application supports two inference modes: `hf` (Hugging Face hosted) and `local` (self/Lightning-hosted). Configure `INFERENCE_PROVIDER` in `.env` or Studio Secrets.
+- When using Lightning GPU, prefer serving the model on the same Lightning workspace (or an internal endpoint) to avoid external inference costs and latency.
